@@ -1,3 +1,6 @@
+import logging
+import os.path
+
 import win32com.client
 from collections import namedtuple
 
@@ -6,7 +9,8 @@ ActionPoint = namedtuple("ActionPoint", ["time", "action", "is_open", "length"])
 
 class VisioEdit:
 
-    def __init__(self, save_path, visible=True):
+    def __init__(self, save_path, visible=False, is_save=True):
+        self.visible = visible
         self.text_shape = None
         self.line_width = None
         self.timeline = None
@@ -21,6 +25,8 @@ class VisioEdit:
         self.page.PageSheet.CellsU("PrintPageOrientation").ResultIU = 1
         self.actions = {}
         self.column_text_width = 0.3
+        self.save_path = save_path
+        self.is_save = is_save
 
     def __enter__(self):
         return self  # 可返回任意对象，赋值给 `as` 子句的变量
@@ -28,7 +34,21 @@ class VisioEdit:
     def __exit__(self, exc_type, exc_value, traceback):
         # timeline = self.page.DrawLine(0.5, 10, 19.5, 10)  # 从(0, 5) 到 (10, 5)的直线
         # 加粗时间轴
-        pass
+        try:
+            output_dir = os.path.abspath("output_data")  # 转换为绝对路径
+            if not os.path.exists(output_dir):
+                os.mkdir(output_dir)
+            self.save_path = os.path.join(output_dir, "new_file.vsd")
+            if os.path.exists(self.save_path):
+                os.remove(self.save_path)
+            if self.is_save:
+                self.doc.SaveAs(self.save_path)
+        except Exception as e:
+            logging.error(e, exc_info=True)
+        finally:
+            if not self.visible:
+                self.doc.Close()
+                self.visio.Quit()
 
     def add_action(self, time, action, is_open, length):
         if time not in self.actions:
@@ -158,7 +178,7 @@ class VisioEdit:
 
 
 if __name__ == '__main__':
-    with VisioEdit("") as editor:
+    with VisioEdit("output_data/new_file.vsd") as editor:
         editor.add_action(0, "动作1", True, 0)
         editor.add_action(1, "这是一个动作2", True, 0.1)
         editor.add_action(1, "这是一个动作3", True, 0.2)

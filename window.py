@@ -20,16 +20,17 @@ class WorkerThread(QThread):
     update_progress = pyqtSignal(int)  # 用于更新进度条的信号
     task_finished = pyqtSignal()  # 任务完成信号
 
-    def __init__(self, table, parent=None):
+    def __init__(self, table, parent=None, visible=False):
         super().__init__(parent)
         self.table = table
+        self.visible = visible
 
     def run(self):
         """后台任务：处理表格数据并生成 Visio 图形"""
         row_count = self.table.rowCount()
         col_count = self.table.columnCount()
 
-        with VisioEdit("") as editor:
+        with VisioEdit("data/default", visible=self.visible) as editor:
             for row in range(row_count):
                 row_data = []
 
@@ -130,14 +131,17 @@ class MainWindow(QWidget):
         right_layout = QVBoxLayout()
         btn_clear = QPushButton("清空")
         btn_generate = QPushButton("生成")
+        btn_edit = QPushButton("打开visio编辑")
         right_layout.addWidget(btn_clear)
         right_layout.addWidget(btn_generate)
+        # right_layout.addWidget(btn_edit)
         right_layout.addStretch()  # 添加弹性布局让按钮靠上
         main_layout.addLayout(right_layout)
 
         # 绑定右侧按钮事件
         btn_clear.clicked.connect(self.clear_table)
         btn_generate.clicked.connect(self.generate_output)
+        btn_edit.clicked.connect(self.edit)
 
         # 设置主窗口布局
         self.setLayout(main_layout)
@@ -181,12 +185,15 @@ class MainWindow(QWidget):
         """清空表格"""
         self.table.setRowCount(0)
 
-    def generate_output(self):
+    def edit(self):
+        self.generate_output(visible=True)
+
+    def generate_output(self, visible=False):
         """生成表格内容"""
         self.progress_window = ProgressWindow()  # 显示进度窗口
         self.progress_window.show()
 
-        self.worker_thread = WorkerThread(self.table)
+        self.worker_thread = WorkerThread(self.table, visible=visible)
         self.worker_thread.update_progress.connect(self.progress_window.progress_bar.setValue)
         self.worker_thread.task_finished.connect(self.task_complete)
         self.worker_thread.task_finished.connect(self.progress_window.close)
