@@ -30,7 +30,7 @@ class WorkerThread(QThread):
         row_count = self.table.rowCount()
         col_count = self.table.columnCount()
 
-        with VisioEdit("data/default", visible=self.visible) as editor:
+        with VisioEdit("output_data/new_file.vsd", visible=self.visible) as editor:
             for row in range(row_count):
                 row_data = []
 

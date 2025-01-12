@@ -10,6 +10,7 @@ ActionPoint = namedtuple("ActionPoint", ["time", "action", "is_open", "length"])
 class VisioEdit:
 
     def __init__(self, save_path, visible=False, is_save=True):
+        pythoncom.CoInitialize()
         self.visible = visible
         self.text_shape = None
         self.line_width = None
