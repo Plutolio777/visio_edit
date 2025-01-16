@@ -1,3 +1,4 @@
+import csv
 import sys
 from PyQt5.QtWidgets import (
     QApplication,
@@ -10,7 +11,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QHeaderView,
     QMessageBox,
-    QProgressBar
+    QProgressBar,
+    QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from visio_edit import VisioEdit
@@ -47,11 +49,12 @@ class WorkerThread(QThread):
                 if len(row_data) != 4:
                     continue
                 try:
-                    row_data[0] = int(row_data[0])
+                    # row_data[0] = float(row_data[0])
                     row_data[-1] = float(row_data[-1])
                 except ValueError:
-                    continue
 
+                    continue
+                print(row_data)
                 editor.add_action(*row_data)
 
                 # 每处理一行更新进度条
@@ -66,6 +69,7 @@ class WorkerThread(QThread):
 
 class ProgressWindow(QWidget):
     """悬浮进度条窗口"""
+
     def __init__(self):
         super().__init__()
         self.progress_bar = None
@@ -118,30 +122,40 @@ class MainWindow(QWidget):
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.table)
         btn_add_row = QPushButton("添加行")
+        btn_insert_row = QPushButton("插入行")  # 新增按钮
         btn_delete_row = QPushButton("删除行")
         left_layout.addWidget(btn_add_row)
+        left_layout.addWidget(btn_insert_row)
         left_layout.addWidget(btn_delete_row)
         main_layout.addLayout(left_layout)
 
         # 绑定按钮事件
-        btn_add_row.clicked.connect(self.add_row)
-        btn_delete_row.clicked.connect(self.delete_row)
+        btn_add_row.clicked.connect(self.add_row)  # noqa
+        btn_delete_row.clicked.connect(self.delete_row)  # noqa
 
         # 右侧操作按钮
         right_layout = QVBoxLayout()
         btn_clear = QPushButton("清空")
         btn_generate = QPushButton("生成")
+        export_generate = QPushButton("导出表格")
+        import_generate = QPushButton("导入表格")
         btn_edit = QPushButton("打开visio编辑")
+
         right_layout.addWidget(btn_clear)
         right_layout.addWidget(btn_generate)
+        right_layout.addWidget(export_generate)
+        right_layout.addWidget(import_generate)
         # right_layout.addWidget(btn_edit)
         right_layout.addStretch()  # 添加弹性布局让按钮靠上
         main_layout.addLayout(right_layout)
 
         # 绑定右侧按钮事件
-        btn_clear.clicked.connect(self.clear_table)
-        btn_generate.clicked.connect(self.generate_output)
-        btn_edit.clicked.connect(self.edit)
+        btn_clear.clicked.connect(self.clear_table)  # noqa
+        btn_generate.clicked.connect(self.generate_output)  # noqa
+        btn_edit.clicked.connect(self.edit)  # noqa
+        export_generate.clicked.connect(self.export_table)  # noqa
+        import_generate.clicked.connect(self.import_table)  # noqa
+        btn_insert_row.clicked.connect(self.insert_row)  # 新增按钮事件绑定
 
         # 设置主窗口布局
         self.setLayout(main_layout)
@@ -151,7 +165,13 @@ class MainWindow(QWidget):
     def add_row(self):
         """添加新行"""
         row_count = self.table.rowCount()
-        self.table.insertRow(row_count)
+        self.do_add_row(row=row_count)
+
+    def do_add_row(self, row=None):
+        """添加新行，支持在指定行插入新行"""
+        if row is None:
+            row = self.table.rowCount()
+        self.table.insertRow(row)
 
         # 设置下拉框
         combo_box = QComboBox()
@@ -165,13 +185,23 @@ class MainWindow(QWidget):
             }
             """
         )
-        self.table.setCellWidget(row_count, 2, combo_box)  # 第三列是下拉框
+        # self.table.setCellWidget(row_count, 2, combo_box)  # 第三列是下拉框
+        self.table.setCellWidget(row, 2, combo_box)  # 第三列是下拉框
 
         # 可编辑单元格
         for col in [0, 1, 3]:  # 指令时刻、动作、长度
             item = QTableWidgetItem()
             item.setFlags(item.flags() | Qt.ItemIsEditable)  # 设置可编辑
-            self.table.setItem(row_count, col, item)
+            # self.table.setItem(row_count, col, item)
+            self.table.setItem(row, col, item)
+
+    def insert_row(self):
+        """在当前选中的行插入新行"""
+        current_row = self.table.currentRow()
+        if current_row >= 0:
+            self.do_add_row(current_row+1)
+        else:
+            QMessageBox.warning(self, "插入行", "请先选中一行再插入！")
 
     def delete_row(self):
         """删除选中行"""
@@ -194,9 +224,9 @@ class MainWindow(QWidget):
         self.progress_window.show()
 
         self.worker_thread = WorkerThread(self.table, visible=visible)
-        self.worker_thread.update_progress.connect(self.progress_window.progress_bar.setValue)
-        self.worker_thread.task_finished.connect(self.task_complete)
-        self.worker_thread.task_finished.connect(self.progress_window.close)
+        self.worker_thread.update_progress.connect(self.progress_window.progress_bar.setValue)  # noqa
+        self.worker_thread.task_finished.connect(self.task_complete)  # noqa
+        self.worker_thread.task_finished.connect(self.progress_window.close)  # noqa
         self.worker_thread.start()
 
     def task_complete(self):
@@ -252,6 +282,53 @@ class MainWindow(QWidget):
                 else:
                     item = QTableWidgetItem(value)
                     self.table.setItem(r, c, item)
+
+    def export_table(self):
+        """导出表格数据到文件"""
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(self, "导出表格", "", "CSV Files (*.csv);;All Files (*)",
+                                                   options=options)
+        if file_path:
+            with open(file_path, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())])
+                for row in range(self.table.rowCount()):
+                    row_data = []
+                    for col in range(self.table.columnCount()):
+                        if col == 2:  # 下拉框
+                            widget = self.table.cellWidget(row, col)
+                            if widget is not None and isinstance(widget, QComboBox):
+                                row_data.append(widget.currentText())
+                        else:  # 普通单元格
+                            item = self.table.item(row, col)
+                            row_data.append(item.text() if item else "")
+                    writer.writerow(row_data)
+
+    def import_table(self):
+        """从文件导入表格数据"""
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "导入表格", "", "CSV Files (*.csv);;All Files (*)",
+                                                   options=options)
+        if file_path:
+            with open(file_path, 'r') as file:
+                reader = csv.reader(file)
+                headers = next(reader)
+                if headers != [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]:
+                    QMessageBox.warning(self, "导入错误", "文件格式不匹配！")
+                    return
+                self.table.setRowCount(0)
+                for row_data in reader:
+                    row = self.table.rowCount()
+                    self.table.insertRow(row)
+                    for col, value in enumerate(row_data):
+                        if col == 2:  # 下拉框
+                            combo_box = QComboBox()
+                            combo_box.addItems(["", "True", "False"])
+                            combo_box.setCurrentText(value)
+                            self.table.setCellWidget(row, col, combo_box)
+                        else:
+                            item = QTableWidgetItem(value)
+                            self.table.setItem(row, col, item)
 
 
 if __name__ == "__main__":

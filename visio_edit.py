@@ -1,6 +1,7 @@
 import logging
 import os.path
 
+import pythoncom
 import win32com.client
 from collections import namedtuple
 
@@ -25,7 +26,7 @@ class VisioEdit:
         self.action_line_height = 1
         self.page.PageSheet.CellsU("PrintPageOrientation").ResultIU = 1
         self.actions = {}
-        self.column_text_width = 0.3
+        self.column_text_width = 0.35
         self.save_path = save_path
         self.is_save = is_save
 
@@ -79,7 +80,8 @@ class VisioEdit:
 
         text_x = self.line_width + 0.5
         text_y = self.page_height / 2
-        self.text_shape = self.page.DrawRectangle((text_x - 0.3)-0.25, text_y - 0.3, (text_x + 0.3)-0.25, text_y + 0.3)  # 添加一个透明的文本框
+        self.text_shape = self.page.DrawRectangle((text_x - 0.3) - 0.25, text_y - 0.3, (text_x + 0.3) - 0.25,
+                                                  text_y + 0.3)  # 添加一个透明的文本框
         self.text_shape.Text = "t(s)"
         self.text_shape.CellsU("Char.Size").FormulaU = "14 pt"
         self.text_shape.CellsU("Char.Style").FormulaU = "2"
@@ -91,8 +93,40 @@ class VisioEdit:
     def paint_default(self):
         pass
 
+    @staticmethod
+    def correction_characters(text):
+        new_text = ""
+        for i, char in enumerate(text):
+            # 判断是否为中文字符（Unicode 范围）
+            if '\u4e00' <= char <= '\u9fff' and i != len(text) - 1:  # 中文字符范围
+                new_text = new_text + char + '\n'
+            else:
+                new_text += char
+        return new_text
+
+    @staticmethod
+    def correction_characters_size(text_table):
+        text = text_table.Text
+        characters = text_table.Characters
+        start_index = 0  # 起始索引
+        for i, char in enumerate(text):
+            # 判断是否为中文字符（Unicode 范围）
+            if '\u4e00' <= char <= '\u9fff':  # 中文字符范围
+                font_size = 9
+            else:  # 其他字符（如标点）
+                font_size = 7
+
+            # 设置字符范围
+            characters.Begin = start_index
+            characters.End = i + 1
+            characters.CharProps(7, font_size)  # 切换到字符属性
+            # characters.Cells("Char.Size").FormulaU = font_size  # 设置字体大小
+
+            # 更新起始索引
+            start_index = i + 1
+
     def paint_actions(self):
-        for time, action_group in self.actions.items():
+        for row_index, (time, action_group) in enumerate(self.actions.items()):
             min_length = min([i.length for i in action_group])
             is_open = any([i.is_open for i in action_group])
             is_close = any([not i.is_open for i in action_group])
@@ -110,7 +144,9 @@ class VisioEdit:
                     if action.is_open:
                         open_action.append(action)
                 table_width = self.column_text_width * len(open_action)
+                should_draw_underline = len(open_action) > 1
                 for index, action in enumerate(open_action):
+                    action_text = VisioEdit.correction_characters(action.action)
                     point = [
                         line_point[0] - (table_width / 2) + self.column_text_width * index,
                         (self.page_height / 2) + 0.55,
@@ -118,12 +154,24 @@ class VisioEdit:
                         (self.page_height / 2) + 5
                     ]
                     text_table = self.page.DrawRectangle(*point)
-                    text_table.Text = action.action
+                    text_table.Text = action_text
+                    VisioEdit.correction_characters_size(text_table)
+
                     text_table.CellsU("VerticalAlign").FormulaU = "2"
                     text_table.Cells("FillForegnd").FormulaU = "RGB(255,255,255)"  # 白色或透明
                     text_table.Cells("FillPattern").FormulaU = "0"  # 填充模式为“无填充”
                     text_table.Cells("LineColor").FormulaU = "RGB(255,255,255)"  # 边框颜色设置为透明
                     text_table.Cells("LinePattern").FormulaU = "0"  # 边框模式为“无边框”
+                    # text_table.CellsU("Char.Size").FormulaU = "9 pt"
+                    if should_draw_underline:
+                        underline_point = [
+                            point[0],
+                            line_point[1],
+                            point[2],
+                            line_point[1]
+                        ]
+                        text_table_underline = self.page.DrawLine(*underline_point)
+                        text_table_underline.Cells("LineWeight").FormulaU = "1.3 pt"
 
             if is_close:
                 line_point = [x_start, (self.page_height / 2) - 0.5, x_start, (self.page_height / 2)]
@@ -137,7 +185,9 @@ class VisioEdit:
                     if not action.is_open:
                         close_action.append(action)
                 table_width = self.column_text_width * len(close_action)
+                should_draw_underline = len(close_action) > 1
                 for index, action in enumerate(close_action):
+                    action_text = VisioEdit.correction_characters(action.action)
                     point = [
                         line_point[0] - (table_width / 2) + self.column_text_width * index,
                         (self.page_height / 2) - 0.55,
@@ -145,25 +195,39 @@ class VisioEdit:
                         (self.page_height / 2) - 5
                     ]
                     text_table = self.page.DrawRectangle(*point)
-                    text_table.Text = action.action
+                    text_table.Text = action_text
+                    VisioEdit.correction_characters_size(text_table)
                     text_table.CellsU("VerticalAlign").FormulaU = "0"
                     text_table.Cells("FillForegnd").FormulaU = "RGB(255,255,255)"  # 白色或透明
                     text_table.Cells("FillPattern").FormulaU = "0"  # 填充模式为“无填充”
                     text_table.Cells("LineColor").FormulaU = "RGB(255,255,255)"  # 边框颜色设置为透明
                     text_table.Cells("LinePattern").FormulaU = "0"  # 边框模式为“无边框”
+                    # text_table.CellsU("Char.Size").FormulaU = "9 pt"
+                    if should_draw_underline:
+                        underline_point = [
+                            point[0],
+                            line_point[1],
+                            point[2],
+                            line_point[1]
+                        ]
+                        text_table_underline = self.page.DrawLine(*underline_point)
+                        text_table_underline.Cells("LineWeight").FormulaU = "1.3 pt"
 
-            index_box_point = [x_start, (self.page_height / 2) + 0.03, x_start + 0.4, (self.page_height / 2) + 0.3]
+            # 绘制序号
+            index_box_point = [x_start, (self.page_height / 2) + 0.03, x_start + 5, (self.page_height / 2) + 0.3]
             index_box = self.page.DrawRectangle(*index_box_point)
-            index_box.Text = f'({time})'
+            index_box.Text = f'({row_index + 1})'
+            index_box.Cells("Para.HorzAlign").FormulaU = "0"
             index_box.Cells("FillForegnd").FormulaU = "RGB(255,255,255)"  # 白色或透明
             index_box.Cells("FillPattern").FormulaU = "0"  # 填充模式为“无填充”
             index_box.Cells("LineColor").FormulaU = "RGB(255,255,255)"  # 边框颜色设置为透明
             index_box.Cells("LinePattern").FormulaU = "0"  # 边框模式为“无边框”
-            index_box.CellsU("Char.Size").FormulaU = "10 pt"
+            index_box.CellsU("Char.Size").FormulaU = "13 pt"
 
-            index_box_point = [x_start, (self.page_height / 2) - 0.03, x_start + 0.4, (self.page_height / 2) - 0.3]
+            index_box_point = [x_start, (self.page_height / 2) - 0.03, x_start + 5, (self.page_height / 2) - 0.3]
             index_box = self.page.DrawRectangle(*index_box_point)
             index_box.Text = f'{time}s'
+            index_box.Cells("Para.HorzAlign").FormulaU = "0"
             index_box.Cells("FillForegnd").FormulaU = "RGB(255,255,255)"  # 白色或透明
             index_box.Cells("FillPattern").FormulaU = "0"  # 填充模式为“无填充”
             index_box.Cells("LineColor").FormulaU = "RGB(255,255,255)"  # 边框颜色设置为透明
@@ -171,22 +235,26 @@ class VisioEdit:
             index_box.CellsU("Char.Size").FormulaU = "10 pt"
 
     def paint(self):
-        if not self.actions:
-            self.paint_default()
-        self.reset_page_size()
-        self.paint_time_line()
-        self.paint_actions()
+        try:
+            if not self.actions:
+                self.paint_default()
+            self.reset_page_size()
+            self.paint_time_line()
+            self.paint_actions()
+        except Exception as e:
+            logging.error(e, exc_info=True)
 
 
 if __name__ == '__main__':
-    with VisioEdit("output_data/new_file.vsd") as editor:
-        editor.add_action(0, "动作1", True, 0)
-        editor.add_action(1, "这是一个动作2", True, 0.1)
-        editor.add_action(1, "这是一个动作3", True, 0.2)
+    with VisioEdit("output_data/new_file.vsd", visible=True) as editor:
+        editor.add_action(0.1, "DQ11打开", True, 0)
+        editor.add_action("t1", "这是一个动作2", True, 0.1)
+        editor.add_action("t1", "这是一个动作3", True, 0.2)
         editor.add_action(3, "动作3", True, 0.3)
         editor.add_action(4, "动作4", False, 0.4)
         editor.add_action(5, "动作5", True, 0.5)
         editor.add_action(6, "打开阀门", True, 0.6)
         editor.add_action(6, "关闭电动气阀", False, 0.6)
-        editor.add_action(8, "关闭电动气阀", False, 0.8)
+        editor.add_action(8, "关闭电动气阀1", False, 0.8)
+        editor.add_action(8, "关闭电动气阀2", False, 0.9)
         editor.paint()
