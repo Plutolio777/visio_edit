@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QMessageBox,
     QProgressBar,
-    QFileDialog
+    QFileDialog, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from visio_edit import VisioEdit
@@ -117,6 +117,7 @@ class MainWindow(QWidget):
         self.table.horizontalHeader().setSectionsClickable(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.CurrentChanged)
 
         # 添加功能按钮
         left_layout = QVBoxLayout()
